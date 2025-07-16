@@ -1,0 +1,1344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DxBall</title>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            background: #1a1a1a;
+            padding-top: 20px;
+            font-family: Arial, sans-serif;
+            color: white;
+        }
+        #statusBar {
+            width: 800px;
+            height: 40px;
+            background: #333;
+            border: 2px solid #444;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            color: white;
+        }
+        #statusBar > div {
+            margin-right: 30px;
+        }
+        .powerupIndicator {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-left: 10px;
+            position: relative;
+            color: white;
+            text-align: center;
+            line-height: 20px;
+            font-weight: bold;
+            font-size: 14px;
+            text-shadow: 1px 1px 1px rgba(0,0,0,0.5);
+        }
+        #gameCanvas {
+            background: #000;
+            border: 2px solid #333;
+        }
+        #gameOverScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+        #highScores {
+            background: #333;
+            border: 2px solid #444;
+            border-radius: 5px;
+            padding: 20px;
+            margin: 20px 0;
+            min-width: 300px;
+        }
+        #highScores h2 {
+            margin-top: 0;
+            text-align: center;
+        }
+        #highScores ol {
+            padding-left: 20px;
+        }
+        #highScores li {
+            margin: 10px 0;
+        }
+        #nameEntry {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            margin: 20px 0;
+        }
+        #nameEntry input {
+            padding: 10px;
+            font-size: 16px;
+            margin: 10px 0;
+            width: 200px;
+            text-align: center;
+        }
+        #nameEntry button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        #nameEntry button:hover {
+            background: #45a049;
+        }
+        #startGame {
+            padding: 15px 30px;
+            font-size: 18px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+        #startGame:hover {
+            background: #45a049;
+        }
+        .brick {
+            position: absolute;
+            background: #f00;
+            border: 1px solid #000;
+        }
+        .paddle {
+            position: absolute;
+            background: #fff;
+            border-radius: 5px;
+        }
+        .ball {
+            position: absolute;
+            background: #fff;
+            border-radius: 50%;
+        }
+        .powerup {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+        }
+        .longer_paddle { background: #0f0; }
+        .faster_paddle { background: #00f; }
+        .multi_ball { background: #ff0; }
+        .magnet { background: #f0f; }
+        .extra_life { background: #f00; }
+    </style>
+</head>
+<body>
+    <div id="statusBar">
+        <div>Score: <span id="scoreDisplay">0</span></div>
+        <div>Lives: <span id="livesDisplay">3</span></div>
+        <div>Paddle: <span id="paddleWidthDisplay">100% (0/5)</span></div>
+        <div>Speed: <span id="paddleSpeedDisplay">100% (0/5)</span></div>
+        <div>Balls: <span id="ballsDisplay">1/5</span></div>
+        <div>Powerups: 
+            <div id="powerupIndicators"></div>
+        </div>
+    </div>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <div id="gameOverScreen">
+        <h1>Game Over</h1>
+        <div id="highScores">
+            <h2>High Scores</h2>
+            <ol id="scoresList"></ol>
+        </div>
+        <div id="nameEntry">
+            <h3>New High Score!</h3>
+            <p>Enter your name:</p>
+            <input type="text" id="playerName" maxlength="10">
+            <button onclick="submitScore()">Submit</button>
+        </div>
+        <button id="startGame" onclick="startNewGame()">Start Game</button>
+    </div>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreDisplay = document.getElementById('scoreDisplay');
+        const livesDisplay = document.getElementById('livesDisplay');
+        const paddleWidthDisplay = document.getElementById('paddleWidthDisplay');
+        const paddleSpeedDisplay = document.getElementById('paddleSpeedDisplay');
+        const ballsDisplay = document.getElementById('ballsDisplay');
+        const powerupIndicators = document.getElementById('powerupIndicators');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const scoresList = document.getElementById('scoresList');
+        const nameEntry = document.getElementById('nameEntry');
+        const playerName = document.getElementById('playerName');
+        
+        // Game state
+        let level = 1;
+        let bricks = [];
+        let powerups = [];
+        let activePowerups = [];
+        let paddle = {
+            x: canvas.width / 2 - 50,
+            y: canvas.height - 30,
+            width: 120,
+            height: 12,
+            speed: 12.0,
+            baseSpeed: 12.0,
+            baseWidth: 120,
+            speedLevel: 0,
+            widthLevel: 0
+        };
+        let balls = [{
+            x: canvas.width / 2,
+            y: canvas.height - 50,
+            radius: 10,
+            dx: 4,
+            dy: -4
+        }];
+        let score = 0;
+        let lives = 3;
+        let magnetActive = false;
+        let magnetTimeout = null;
+        let heldBall = null;
+        let gameOver = false;
+        let gamePaused = false;
+        let highScores = [];
+        let particles = []; // Array to store active particles
+
+        // Particle class for brick destruction effects
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.color = color;
+                this.size = Math.random() * 3 + 2;
+                this.speedX = (Math.random() - 0.5) * 4;
+                this.speedY = (Math.random() - 0.5) * 4;
+                this.life = 1.0; // Full opacity
+                this.decay = Math.random() * 0.02 + 0.01; // Random decay rate
+            }
+
+            update() {
+                this.x += this.speedX;
+                this.y += this.speedY;
+                this.life -= this.decay;
+                this.size *= 0.98; // Slightly shrink over time
+                return this.life > 0;
+            }
+
+            draw(ctx) {
+                ctx.globalAlpha = this.life;
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1.0;
+            }
+        }
+
+        // Function to create particles from a brick
+        function createParticlesFromBrick(brick) {
+            const centerX = brick.x + brick.width / 2;
+            const centerY = brick.y + brick.height / 2;
+            
+            // Special handling for explosive bricks
+            if (brick.type === 'explosive') {
+                const particleCount = 50; // More particles for explosive bricks
+                const colors = ['#ffff00', '#ff8800', '#ff4400', '#ff0000']; // Yellow to red gradient
+                
+                // Create explosion particles
+                for (let i = 0; i < particleCount; i++) {
+                    const color = colors[Math.floor(Math.random() * colors.length)];
+                    const particle = new Particle(centerX, centerY, color);
+                    
+                    // Make explosive particles larger and faster
+                    particle.size = Math.random() * 5 + 3;
+                    particle.speedX = (Math.random() - 0.5) * 8;
+                    particle.speedY = (Math.random() - 0.5) * 8;
+                    particle.decay = Math.random() * 0.01 + 0.005; // Slower decay
+                    
+                    particles.push(particle);
+                }
+                
+                // Add some larger, slower particles for the core of the explosion
+                for (let i = 0; i < 10; i++) {
+                    const particle = new Particle(centerX, centerY, '#ffff00');
+                    particle.size = Math.random() * 8 + 5;
+                    particle.speedX = (Math.random() - 0.5) * 4;
+                    particle.speedY = (Math.random() - 0.5) * 4;
+                    particle.decay = Math.random() * 0.005 + 0.002; // Very slow decay
+                    particles.push(particle);
+                }
+                
+                return;
+            }
+            
+            // Regular brick particles
+            const particleCount = 15;
+            
+            // Determine base color based on brick type
+            let baseColor;
+            if (brick.hits === 2) {
+                baseColor = brick.hit ? '#4444ff' : '#0000cc';
+            } else if (brick.type === 'magnetic') {
+                baseColor = 'rgba(255, 0, 255, 0.6)';
+            } else if (brick.type === 'teleport') {
+                baseColor = '#ffffff';
+            } else if (brick.type === 'metal') {
+                baseColor = '#c0c0c0';
+            } else {
+                baseColor = '#ff4444';
+            }
+
+            // Create particles
+            for (let i = 0; i < particleCount; i++) {
+                const color = adjustColor(baseColor, Math.random() * 0.3 - 0.15);
+                particles.push(new Particle(centerX, centerY, color));
+            }
+        }
+
+        // Helper function to adjust color brightness
+        function adjustColor(color, factor) {
+            if (color.startsWith('rgba')) {
+                const rgba = color.match(/\d+/g);
+                const r = Math.min(255, Math.max(0, parseInt(rgba[0]) * (1 + factor)));
+                const g = Math.min(255, Math.max(0, parseInt(rgba[1]) * (1 + factor)));
+                const b = Math.min(255, Math.max(0, parseInt(rgba[2]) * (1 + factor)));
+                return `rgba(${r},${g},${b},${rgba[3]})`;
+            } else {
+                const hex = color.replace('#', '');
+                const r = Math.min(255, Math.max(0, parseInt(hex.substr(0, 2), 16) * (1 + factor)));
+                const g = Math.min(255, Math.max(0, parseInt(hex.substr(2, 2), 16) * (1 + factor)));
+                const b = Math.min(255, Math.max(0, parseInt(hex.substr(4, 2), 16) * (1 + factor)));
+                return `#${Math.floor(r).toString(16).padStart(2, '0')}${Math.floor(g).toString(16).padStart(2, '0')}${Math.floor(b).toString(16).padStart(2, '0')}`;
+            }
+        }
+
+        async function loadHighScores() {
+            try {
+                const response = await fetch('/api/scores');
+                highScores = await response.json();
+                updateScoresDisplay();
+            } catch (error) {
+                console.error('Error loading high scores:', error);
+            }
+        }
+
+        function updateScoresDisplay() {
+            scoresList.innerHTML = '';
+            highScores.forEach((score, index) => {
+                const li = document.createElement('li');
+                li.textContent = `${index + 1}. ${score.name}: ${score.score}`;
+                scoresList.appendChild(li);
+            });
+        }
+
+        async function submitScore() {
+            const name = playerName.value.trim();
+            if (!name) return;
+
+            try {
+                const response = await fetch('/api/scores', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        name: name,
+                        score: score
+                    })
+                });
+                highScores = await response.json();
+                updateScoresDisplay();
+                nameEntry.style.display = 'none';
+            } catch (error) {
+                console.error('Error submitting score:', error);
+            }
+        }
+
+        function showGameOver() {
+            gameOverScreen.style.display = 'flex';
+            const lowestScore = highScores.length > 0 ? highScores[highScores.length - 1].score : 0;
+            if (highScores.length < 10 || score > lowestScore) {
+                nameEntry.style.display = 'flex';
+            } else {
+                nameEntry.style.display = 'none';
+            }
+        }
+
+        function startNewGame() {
+            gameOverScreen.style.display = 'none';
+            level = 1;
+            score = 0;
+            lives = 3;
+            paddle.width = paddle.baseWidth;
+            paddle.speed = paddle.baseSpeed;
+            paddle.widthLevel = 0;
+            paddle.speedLevel = 0;
+            magnetActive = false;
+            heldBall = null;
+            gameOver = false;
+            gamePaused = false;
+            
+            // Calculate random angle between -60 and 60 degrees
+            const angle = (Math.random() - 0.5) * Math.PI / 1.5; // -60 to 60 degrees
+            const speed = 5; // Base speed
+            
+            balls = [{
+                x: canvas.width / 2,
+                y: canvas.height - 50,
+                radius: 10,
+                dx: Math.sin(angle) * speed,
+                dy: -Math.cos(angle) * speed
+            }];
+            
+            loadLevel(level).then(() => {
+                updateStatusDisplay();
+                gameLoop();
+            });
+        }
+
+        function updateStatusDisplay() {
+            scoreDisplay.textContent = score;
+            livesDisplay.textContent = lives;
+            paddleWidthDisplay.textContent = `${Math.round((paddle.width / paddle.baseWidth) * 100)}% (${paddle.widthLevel}/5)`;
+            paddleSpeedDisplay.textContent = `${Math.round((paddle.speed / paddle.baseSpeed) * 100)}% (${paddle.speedLevel}/5)`;
+            ballsDisplay.textContent = `${balls.length}/5`;
+            
+            // Update powerup indicators
+            powerupIndicators.innerHTML = '';
+            if (paddle.widthLevel > 0) {
+                const indicator = document.createElement('div');
+                indicator.className = 'powerupIndicator longer_paddle';
+                indicator.textContent = 'L';
+                powerupIndicators.appendChild(indicator);
+            }
+            if (paddle.speedLevel > 0) {
+                const indicator = document.createElement('div');
+                indicator.className = 'powerupIndicator faster_paddle';
+                indicator.textContent = 'S';
+                powerupIndicators.appendChild(indicator);
+            }
+            if (magnetActive) {
+                const indicator = document.createElement('div');
+                indicator.className = 'powerupIndicator magnet';
+                indicator.textContent = 'M';
+                powerupIndicators.appendChild(indicator);
+            }
+            if (balls.length > 1) {
+                const indicator = document.createElement('div');
+                indicator.className = 'powerupIndicator multi_ball';
+                indicator.textContent = '+';
+                powerupIndicators.appendChild(indicator);
+            }
+        }
+
+        // Load level
+        async function loadLevel(levelNumber) {
+            try {
+                const response = await fetch(`/api/level/${levelNumber}`);
+                const data = await response.json();
+                bricks = [];
+                powerups = data.powerups;
+                
+                const brickWidth = (canvas.width - 40) / 16;
+                const brickHeight = 25;
+                const startX = 20;
+                const startY = 20;
+                
+                data.bricks.forEach((row, y) => {
+                    row.forEach((brick, x) => {
+                        if (brick) {
+                            bricks.push({
+                                x: startX + x * brickWidth,
+                                y: startY + y * brickHeight,
+                                width: brickWidth - 2,
+                                height: brickHeight - 2,
+                                visible: true,
+                                hits: brick === 2 ? 2 : 1, // 2 hits for blue bricks
+                                hit: false, // Track if brick has been hit once
+                                type: brick === 3 ? 'magnetic' : (brick === 4 ? 'teleport' : (brick === 5 ? 'metal' : (brick === 6 ? 'explosive' : null)))
+                            });
+                        }
+                    });
+                });
+            } catch (error) {
+                console.error('Error loading level:', error);
+            }
+        }
+
+        function drawBrick(brick) {
+            const radius = 5;
+            
+            // Create gradient for 3D effect
+            const gradient = ctx.createLinearGradient(
+                brick.x, brick.y,
+                brick.x, brick.y + brick.height
+            );
+            
+            // Use different colors based on brick type
+            if (brick.hits === 2) {
+                gradient.addColorStop(0, brick.hit ? '#4444ff' : '#4444ff'); // Lighter blue at top
+                gradient.addColorStop(1, brick.hit ? '#0000cc' : '#0000cc'); // Darker blue at bottom
+            } else if (brick.type === 'magnetic') {
+                // Clear glass effect
+                gradient.addColorStop(0, 'rgba(255, 255, 255, 0.1)'); // Very light at top
+                gradient.addColorStop(0.5, 'rgba(200, 200, 255, 0.2)'); // Slight blue tint in middle
+                gradient.addColorStop(1, 'rgba(150, 150, 200, 0.3)'); // Slightly darker at bottom
+            } else if (brick.type === 'teleport') {
+                // Black to white gradient
+                gradient.addColorStop(0, '#000000'); // Black at top
+                gradient.addColorStop(0.5, '#808080'); // Gray in middle
+                gradient.addColorStop(1, '#ffffff'); // White at bottom
+            } else if (brick.type === 'metal') {
+                // Chrome/metal gradient
+                gradient.addColorStop(0, '#ffffff'); // Bright white at top
+                gradient.addColorStop(0.2, '#e0e0e0'); // Light gray
+                gradient.addColorStop(0.4, '#c0c0c0'); // Medium gray
+                gradient.addColorStop(0.6, '#a0a0a0'); // Darker gray
+                gradient.addColorStop(0.8, '#c0c0c0'); // Medium gray
+                gradient.addColorStop(1, '#e0e0e0'); // Light gray at bottom
+            } else if (brick.type === 'explosive') {
+                // Orange to red gradient for explosive bricks
+                gradient.addColorStop(0, '#ff8800'); // Bright orange at top
+                gradient.addColorStop(0.5, '#ff4400'); // Orange-red in middle
+                gradient.addColorStop(1, '#cc0000'); // Dark red at bottom
+            } else {
+                gradient.addColorStop(0, '#ff4444'); // Lighter red at top
+                gradient.addColorStop(1, '#cc0000'); // Darker red at bottom
+            }
+
+            // Draw main brick body
+            ctx.beginPath();
+            ctx.moveTo(brick.x + radius, brick.y);
+            ctx.lineTo(brick.x + brick.width - radius, brick.y);
+            ctx.quadraticCurveTo(brick.x + brick.width, brick.y, brick.x + brick.width, brick.y + radius);
+            ctx.lineTo(brick.x + brick.width, brick.y + brick.height - radius);
+            ctx.quadraticCurveTo(brick.x + brick.width, brick.y + brick.height, brick.x + brick.width - radius, brick.y + brick.height);
+            ctx.lineTo(brick.x + radius, brick.y + brick.height);
+            ctx.quadraticCurveTo(brick.x, brick.y + brick.height, brick.x, brick.y + brick.height - radius);
+            ctx.lineTo(brick.x, brick.y + radius);
+            ctx.quadraticCurveTo(brick.x, brick.y, brick.x + radius, brick.y);
+            ctx.closePath();
+            
+            ctx.fillStyle = gradient;
+            ctx.fill();
+
+            // Draw highlight on top and left edges
+            ctx.beginPath();
+            ctx.moveTo(brick.x + radius, brick.y);
+            ctx.lineTo(brick.x + brick.width - radius, brick.y);
+            ctx.quadraticCurveTo(brick.x + brick.width, brick.y, brick.x + brick.width, brick.y + radius);
+            ctx.lineTo(brick.x + brick.width, brick.y + 2);
+            ctx.lineTo(brick.x + 2, brick.y + 2);
+            ctx.lineTo(brick.x + 2, brick.y + radius);
+            ctx.quadraticCurveTo(brick.x + 2, brick.y, brick.x + radius, brick.y);
+            ctx.closePath();
+            
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+            ctx.fill();
+
+            // Draw shadow on bottom and right edges
+            ctx.beginPath();
+            ctx.moveTo(brick.x + brick.width - 2, brick.y + 2);
+            ctx.lineTo(brick.x + brick.width - 2, brick.y + brick.height - radius);
+            ctx.quadraticCurveTo(brick.x + brick.width - 2, brick.y + brick.height, brick.x + brick.width - radius, brick.y + brick.height);
+            ctx.lineTo(brick.x + radius, brick.y + brick.height);
+            ctx.quadraticCurveTo(brick.x, brick.y + brick.height, brick.x, brick.y + brick.height - 2);
+            ctx.lineTo(brick.x + brick.width - 2, brick.y + brick.height - 2);
+            ctx.closePath();
+            
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.fill();
+
+            // Draw crack if brick has been hit once
+            if (brick.hit && brick.hits === 2) {
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+                ctx.lineWidth = 1.5;
+                
+                // Main crack
+                ctx.beginPath();
+                ctx.moveTo(brick.x + brick.width * 0.2, brick.y + brick.height * 0.2);
+                ctx.quadraticCurveTo(
+                    brick.x + brick.width * 0.4, brick.y + brick.height * 0.3,
+                    brick.x + brick.width * 0.5, brick.y + brick.height * 0.5
+                );
+                ctx.quadraticCurveTo(
+                    brick.x + brick.width * 0.6, brick.y + brick.height * 0.7,
+                    brick.x + brick.width * 0.8, brick.y + brick.height * 0.8
+                );
+                ctx.stroke();
+
+                // Secondary cracks
+                ctx.beginPath();
+                ctx.moveTo(brick.x + brick.width * 0.3, brick.y + brick.height * 0.1);
+                ctx.quadraticCurveTo(
+                    brick.x + brick.width * 0.35, brick.y + brick.height * 0.2,
+                    brick.x + brick.width * 0.4, brick.y + brick.height * 0.3
+                );
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.moveTo(brick.x + brick.width * 0.7, brick.y + brick.height * 0.2);
+                ctx.quadraticCurveTo(
+                    brick.x + brick.width * 0.65, brick.y + brick.height * 0.3,
+                    brick.x + brick.width * 0.6, brick.y + brick.height * 0.4
+                );
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.moveTo(brick.x + brick.width * 0.4, brick.y + brick.height * 0.6);
+                ctx.quadraticCurveTo(
+                    brick.x + brick.width * 0.45, brick.y + brick.height * 0.7,
+                    brick.x + brick.width * 0.5, brick.y + brick.height * 0.8
+                );
+                ctx.stroke();
+
+                // Small random cracks
+                for (let i = 0; i < 3; i++) {
+                    const startX = brick.x + brick.width * (0.3 + Math.random() * 0.4);
+                    const startY = brick.y + brick.height * (0.3 + Math.random() * 0.4);
+                    const endX = startX + (Math.random() - 0.5) * brick.width * 0.2;
+                    const endY = startY + (Math.random() - 0.5) * brick.height * 0.2;
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(startX, startY);
+                    ctx.quadraticCurveTo(
+                        startX + (endX - startX) * 0.5 + (Math.random() - 0.5) * brick.width * 0.1,
+                        startY + (endY - startY) * 0.5 + (Math.random() - 0.5) * brick.height * 0.1,
+                        endX, endY
+                    );
+                    ctx.stroke();
+                }
+            }
+
+            // Draw U-shaped magnet for magnetic bricks
+            if (brick.type === 'magnetic') {
+                const centerX = brick.x + brick.width / 2;
+                const centerY = brick.y + brick.height / 2;
+                const magnetWidth = brick.width * 0.6;
+                const magnetHeight = brick.height * 0.4;
+                const poleRadius = Math.min(brick.width, brick.height) * 0.15;
+
+                // Draw magnet body
+                ctx.fillStyle = 'rgba(255, 0, 255, 0.6)';
+                ctx.beginPath();
+                // U shape
+                ctx.moveTo(centerX - magnetWidth/2, centerY - magnetHeight/2);
+                ctx.lineTo(centerX + magnetWidth/2, centerY - magnetHeight/2);
+                ctx.lineTo(centerX + magnetWidth/2, centerY + magnetHeight/2);
+                ctx.quadraticCurveTo(
+                    centerX + magnetWidth/2, centerY + magnetHeight,
+                    centerX, centerY + magnetHeight
+                );
+                ctx.quadraticCurveTo(
+                    centerX - magnetWidth/2, centerY + magnetHeight,
+                    centerX - magnetWidth/2, centerY + magnetHeight/2
+                );
+                ctx.closePath();
+                ctx.fill();
+
+                // Draw magnet poles
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                // Left pole
+                ctx.beginPath();
+                ctx.arc(
+                    centerX - magnetWidth/2 + poleRadius,
+                    centerY - magnetHeight/2,
+                    poleRadius,
+                    0, Math.PI * 2
+                );
+                ctx.fill();
+                // Right pole
+                ctx.beginPath();
+                ctx.arc(
+                    centerX + magnetWidth/2 - poleRadius,
+                    centerY - magnetHeight/2,
+                    poleRadius,
+                    0, Math.PI * 2
+                );
+                ctx.fill();
+            }
+
+            // Draw teleport symbol for teleport bricks
+            if (brick.type === 'teleport') {
+                const centerX = brick.x + brick.width / 2;
+                const centerY = brick.y + brick.height / 2;
+                const size = Math.min(brick.width, brick.height) * 0.4;
+
+                // Draw outer circle
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, size, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // Draw inner circle
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, size * 0.6, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // Draw arrows
+                const arrowLength = size * 0.4;
+                const arrowWidth = size * 0.2;
+                
+                // Top arrow
+                ctx.beginPath();
+                ctx.moveTo(centerX, centerY - size);
+                ctx.lineTo(centerX - arrowWidth, centerY - size + arrowLength);
+                ctx.lineTo(centerX + arrowWidth, centerY - size + arrowLength);
+                ctx.closePath();
+                ctx.fillStyle = '#ffffff';
+                ctx.fill();
+
+                // Bottom arrow
+                ctx.beginPath();
+                ctx.moveTo(centerX, centerY + size);
+                ctx.lineTo(centerX - arrowWidth, centerY + size - arrowLength);
+                ctx.lineTo(centerX + arrowWidth, centerY + size - arrowLength);
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            // Draw rivets for metal bricks
+            if (brick.type === 'metal') {
+                const rivetRadius = 3;
+                const rivetSpacing = brick.width / 4;
+                
+                // Draw four rivets
+                for (let i = 1; i <= 3; i++) {
+                    for (let j = 1; j <= 3; j++) {
+                        if ((i === 1 || i === 3) && (j === 1 || j === 3)) {
+                            // Create gradient for rivet
+                            const rivetGradient = ctx.createRadialGradient(
+                                brick.x + i * rivetSpacing - rivetRadius/2,
+                                brick.y + j * rivetSpacing - rivetRadius/2,
+                                0,
+                                brick.x + i * rivetSpacing,
+                                brick.y + j * rivetSpacing,
+                                rivetRadius
+                            );
+                            rivetGradient.addColorStop(0, '#ffffff');
+                            rivetGradient.addColorStop(1, '#808080');
+                            
+                            ctx.beginPath();
+                            ctx.arc(
+                                brick.x + i * rivetSpacing,
+                                brick.y + j * rivetSpacing,
+                                rivetRadius,
+                                0, Math.PI * 2
+                            );
+                            ctx.fillStyle = rivetGradient;
+                            ctx.fill();
+                            
+                            // Draw rivet highlight
+                            ctx.beginPath();
+                            ctx.arc(
+                                brick.x + i * rivetSpacing - rivetRadius/2,
+                                brick.y + j * rivetSpacing - rivetRadius/2,
+                                rivetRadius/2,
+                                0, Math.PI * 2
+                            );
+                            ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+                            ctx.fill();
+                        }
+                    }
+                }
+            }
+
+            // Draw explosion symbol for explosive bricks
+            if (brick.type === 'explosive') {
+                const centerX = brick.x + brick.width / 2;
+                const centerY = brick.y + brick.height / 2;
+                const size = Math.min(brick.width, brick.height) * 0.4;
+
+                // Draw explosion rays
+                ctx.strokeStyle = '#ffff00';
+                ctx.lineWidth = 2;
+                
+                // Draw 8 rays
+                for (let i = 0; i < 8; i++) {
+                    const angle = (i / 8) * Math.PI * 2;
+                    const rayLength = size * 0.8;
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(centerX, centerY);
+                    ctx.lineTo(
+                        centerX + Math.cos(angle) * rayLength,
+                        centerY + Math.sin(angle) * rayLength
+                    );
+                    ctx.stroke();
+                }
+
+                // Draw center circle
+                ctx.fillStyle = '#ffff00';
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, size * 0.3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        function updateBall(ball) {
+            // Skip update if this is the held ball
+            if (ball === heldBall) {
+                return;
+            }
+
+            // Apply magnetic brick effects
+            bricks.forEach(brick => {
+                if (brick.visible && brick.type === 'magnetic') {
+                    const dx = (brick.x + brick.width / 2) - ball.x;
+                    const dy = (brick.y + brick.height / 2) - ball.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    const maxDistance = 200; // Maximum distance for magnetic effect
+                    
+                    if (distance < maxDistance) {
+                        const force = 0.1 * (1 - distance / maxDistance); // Stronger when closer
+                        ball.dx += dx * force / distance;
+                        ball.dy += dy * force / distance;
+                    }
+                }
+            });
+
+            // Move ball
+            ball.x += ball.dx;
+            ball.y += ball.dy;
+
+            // Wall collision
+            if (ball.x + ball.radius > canvas.width || ball.x - ball.radius < 0) {
+                ball.dx = -ball.dx;
+            }
+            if (ball.y - ball.radius < 0) {
+                ball.dy = -ball.dy;
+            }
+
+            // Paddle collision
+            if (ball.y + ball.radius > paddle.y && 
+                ball.y - ball.radius < paddle.y + paddle.height &&
+                ball.x + ball.radius > paddle.x && 
+                ball.x - ball.radius < paddle.x + paddle.width) {
+                
+                // If magnet is active and no ball is currently held, hold this ball
+                if (magnetActive && !heldBall) {
+                    heldBall = ball;
+                    ball.dx = 0;
+                    ball.dy = 0;
+                    return;
+                }
+                
+                // Calculate where on the paddle the ball hit
+                const hitPosition = (ball.x - paddle.x) / paddle.width;
+                const angle = (hitPosition - 0.5) * Math.PI / 3; // -60 to 60 degrees
+                
+                // Calculate new direction
+                const speed = Math.sqrt(ball.dx * ball.dx + ball.dy * ball.dy);
+                ball.dx = Math.sin(angle) * speed;
+                ball.dy = -Math.cos(angle) * speed;
+            }
+
+            // Brick collision
+            bricks.forEach(brick => {
+                if (brick.visible) {
+                    if (ball.x + ball.radius > brick.x && 
+                        ball.x - ball.radius < brick.x + brick.width &&
+                        ball.y + ball.radius > brick.y && 
+                        ball.y - ball.radius < brick.y + brick.height) {
+                        
+                        if (brick.hits === 2) {
+                            if (!brick.hit) {
+                                brick.hit = true;
+                            } else {
+                                brick.visible = false;
+                                createParticlesFromBrick(brick);
+                            }
+                        } else if (brick.type === 'teleport') {
+                            // Teleport the ball to a random position
+                            ball.x = ball.radius + Math.random() * (canvas.width - ball.radius * 2);
+                            ball.y = ball.radius + Math.random() * (canvas.height - ball.radius * 2);
+                            // Keep the same velocity and angle
+                            return; // Skip the rest of the collision handling
+                        } else if (brick.type === 'explosive') {
+                            // Explode and destroy adjacent bricks
+                            const explosionRadius = brick.width * 2; // Radius of explosion effect
+                            bricks.forEach(otherBrick => {
+                                if (otherBrick.visible && otherBrick !== brick) {
+                                    const dx = (otherBrick.x + otherBrick.width/2) - (brick.x + brick.width/2);
+                                    const dy = (otherBrick.y + otherBrick.height/2) - (brick.y + brick.height/2);
+                                    const distance = Math.sqrt(dx * dx + dy * dy);
+                                    
+                                    if (distance < explosionRadius && otherBrick.type !== 'metal') {
+                                        otherBrick.visible = false;
+                                        score += otherBrick.hits === 2 ? 20 : 10;
+                                    }
+                                }
+                            });
+                            brick.visible = false;
+                            createParticlesFromBrick(brick);
+                        } else if (brick.type !== 'metal') {
+                            brick.visible = false;
+                            createParticlesFromBrick(brick);
+                        }
+                        
+                        ball.dy = -ball.dy;
+                        score += brick.hits === 2 ? 20 : 10;
+
+                        // Check if powerup should spawn (only for non-metal bricks)
+                        if (brick.type !== 'metal' && Math.random() < 0.2) {
+                            const powerupTypes = ['longer_paddle', 'faster_paddle', 'multi_ball', 'extra_life'];
+                            if (!magnetActive) {
+                                powerupTypes.push('magnet');
+                            }
+                            const type = powerupTypes[Math.floor(Math.random() * powerupTypes.length)];
+                            powerups.push({
+                                type: type,
+                                x: brick.x + brick.width / 2,
+                                y: brick.y + brick.height / 2,
+                                dy: 2
+                            });
+                        }
+                    }
+                }
+            });
+
+            // Game over check
+            if (ball.y + ball.radius > canvas.height) {
+                balls = balls.filter(b => b !== ball);
+                if (balls.length === 0) {
+                    lives--;
+                    // Reset powerups when losing a life
+                    paddle.width = paddle.baseWidth;
+                    paddle.speed = paddle.baseSpeed;
+                    paddle.widthLevel = 0;
+                    paddle.speedLevel = 0;
+                    magnetActive = false;
+                    powerups = []; // Clear all powerups
+                    if (heldBall) {
+                        heldBall.dx = (Math.random() - 0.5) * 8;
+                        heldBall.dy = -Math.abs(Math.random() * 4 + 2);
+                        heldBall = null;
+                    }
+                    if (lives <= 0) {
+                        gameOver = true;
+                    } else {
+                        balls = [{
+                            x: canvas.width / 2,
+                            y: canvas.height - 50,
+                            radius: 10,
+                            dx: 4,
+                            dy: -4
+                        }];
+                    }
+                }
+            }
+
+            // Update score display when score changes
+            if (score !== parseInt(scoreDisplay.textContent)) {
+                updateStatusDisplay();
+            }
+        }
+
+        function applyPowerup(type) {
+            switch (type) {
+                case 'longer_paddle':
+                    if (paddle.widthLevel < 5) {
+                        paddle.width += 25;
+                        paddle.widthLevel++;
+                    }
+                    updateStatusDisplay();
+                    break;
+                case 'faster_paddle':
+                    if (paddle.speedLevel < 5) {
+                        paddle.speed += 2;
+                        paddle.speedLevel++;
+                    }
+                    updateStatusDisplay();
+                    break;
+                case 'multi_ball':
+                    if (balls.length < 5) {
+                        const newBall = {
+                            x: paddle.x + paddle.width / 2,
+                            y: paddle.y - 10,
+                            radius: 10,
+                            dx: (Math.random() - 0.5) * 8, // Random horizontal direction
+                            dy: -Math.abs(Math.random() * 4 + 2) // Always upward, random speed
+                        };
+                        balls.push(newBall);
+                    }
+                    break;
+                case 'magnet':
+                    magnetActive = true;
+                    updateStatusDisplay();
+                    break;
+                case 'extra_life':
+                    lives++;
+                    updateStatusDisplay();
+                    break;
+            }
+            updateStatusDisplay();
+        }
+
+        // Game loop
+        function gameLoop() {
+            if (gameOver) {
+                showGameOver();
+                return;
+            }
+
+            if (gamePaused) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                ctx.fillStyle = '#fff';
+                ctx.font = '48px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('PAUSED', canvas.width/2, canvas.height/2);
+                ctx.textAlign = 'left';
+                
+                requestAnimationFrame(gameLoop);
+                return;
+            }
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Update and draw particles
+            particles = particles.filter(particle => {
+                particle.update();
+                particle.draw(ctx);
+                return particle.life > 0;
+            });
+
+            // Update and draw balls
+            balls.forEach(ball => {
+                updateBall(ball);
+                
+                // Create gradient for 3D effect
+                const ballGradient = ctx.createRadialGradient(
+                    ball.x - ball.radius * 0.3, ball.y - ball.radius * 0.3, ball.radius * 0.1,
+                    ball.x, ball.y, ball.radius
+                );
+                ballGradient.addColorStop(0, '#ffffff'); // Bright white at highlight
+                ballGradient.addColorStop(0.5, '#cccccc'); // Light gray in middle
+                ballGradient.addColorStop(1, '#999999'); // Darker gray at edges
+
+                // Draw main ball body
+                ctx.beginPath();
+                ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+                ctx.fillStyle = ballGradient;
+                ctx.fill();
+
+                // Draw highlight
+                ctx.beginPath();
+                ctx.arc(
+                    ball.x - ball.radius * 0.3,
+                    ball.y - ball.radius * 0.3,
+                    ball.radius * 0.4,
+                    0, Math.PI * 2
+                );
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+                ctx.fill();
+
+                // Draw shadow
+                ctx.beginPath();
+                ctx.arc(
+                    ball.x + ball.radius * 0.2,
+                    ball.y + ball.radius * 0.2,
+                    ball.radius * 0.3,
+                    0, Math.PI * 2
+                );
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+                ctx.fill();
+            });
+
+            // Draw held ball if there is one
+            if (heldBall) {
+                heldBall.x = paddle.x + paddle.width / 2;
+                heldBall.y = paddle.y - heldBall.radius;
+                
+                // Create gradient for 3D effect
+                const heldBallGradient = ctx.createRadialGradient(
+                    heldBall.x - heldBall.radius * 0.3, heldBall.y - heldBall.radius * 0.3, heldBall.radius * 0.1,
+                    heldBall.x, heldBall.y, heldBall.radius
+                );
+                heldBallGradient.addColorStop(0, '#ffffff'); // Bright white at highlight
+                heldBallGradient.addColorStop(0.5, '#cccccc'); // Light gray in middle
+                heldBallGradient.addColorStop(1, '#999999'); // Darker gray at edges
+
+                // Draw main ball body
+                ctx.beginPath();
+                ctx.arc(heldBall.x, heldBall.y, heldBall.radius, 0, Math.PI * 2);
+                ctx.fillStyle = heldBallGradient;
+                ctx.fill();
+
+                // Draw highlight
+                ctx.beginPath();
+                ctx.arc(
+                    heldBall.x - heldBall.radius * 0.3,
+                    heldBall.y - heldBall.radius * 0.3,
+                    heldBall.radius * 0.4,
+                    0, Math.PI * 2
+                );
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+                ctx.fill();
+
+                // Draw shadow
+                ctx.beginPath();
+                ctx.arc(
+                    heldBall.x + heldBall.radius * 0.2,
+                    heldBall.y + heldBall.radius * 0.2,
+                    heldBall.radius * 0.3,
+                    0, Math.PI * 2
+                );
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+                ctx.fill();
+            }
+
+            // Draw bricks
+            bricks.forEach(brick => {
+                if (brick.visible) {
+                    drawBrick(brick);
+                }
+            });
+
+            // Draw paddle with rounded corners and 3D effect
+            const paddleRadius = 5;
+            
+            // Create gradient for 3D effect
+            const paddleGradient = ctx.createLinearGradient(
+                paddle.x, paddle.y,
+                paddle.x, paddle.y + paddle.height
+            );
+            paddleGradient.addColorStop(0, '#ffffff'); // White at top
+            paddleGradient.addColorStop(1, '#cccccc'); // Light gray at bottom
+
+            // Draw main paddle body
+            ctx.beginPath();
+            ctx.moveTo(paddle.x + paddleRadius, paddle.y);
+            ctx.lineTo(paddle.x + paddle.width - paddleRadius, paddle.y);
+            ctx.quadraticCurveTo(paddle.x + paddle.width, paddle.y, paddle.x + paddle.width, paddle.y + paddleRadius);
+            ctx.lineTo(paddle.x + paddle.width, paddle.y + paddle.height - paddleRadius);
+            ctx.quadraticCurveTo(paddle.x + paddle.width, paddle.y + paddle.height, paddle.x + paddle.width - paddleRadius, paddle.y + paddle.height);
+            ctx.lineTo(paddle.x + paddleRadius, paddle.y + paddle.height);
+            ctx.quadraticCurveTo(paddle.x, paddle.y + paddle.height, paddle.x, paddle.y + paddle.height - paddleRadius);
+            ctx.lineTo(paddle.x, paddle.y + paddleRadius);
+            ctx.quadraticCurveTo(paddle.x, paddle.y, paddle.x + paddleRadius, paddle.y);
+            ctx.closePath();
+            
+            ctx.fillStyle = paddleGradient;
+            ctx.fill();
+
+            // Draw highlight on top and left edges
+            ctx.beginPath();
+            ctx.moveTo(paddle.x + paddleRadius, paddle.y);
+            ctx.lineTo(paddle.x + paddle.width - paddleRadius, paddle.y);
+            ctx.quadraticCurveTo(paddle.x + paddle.width, paddle.y, paddle.x + paddle.width, paddle.y + paddleRadius);
+            ctx.lineTo(paddle.x + paddle.width, paddle.y + 2);
+            ctx.lineTo(paddle.x + 2, paddle.y + 2);
+            ctx.lineTo(paddle.x + 2, paddle.y + paddleRadius);
+            ctx.quadraticCurveTo(paddle.x + 2, paddle.y, paddle.x + paddleRadius, paddle.y);
+            ctx.closePath();
+            
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+            ctx.fill();
+
+            // Draw shadow on bottom and right edges
+            ctx.beginPath();
+            ctx.moveTo(paddle.x + paddle.width - 2, paddle.y + 2);
+            ctx.lineTo(paddle.x + paddle.width - 2, paddle.y + paddle.height - paddleRadius);
+            ctx.quadraticCurveTo(paddle.x + paddle.width - 2, paddle.y + paddle.height, paddle.x + paddle.width - paddleRadius, paddle.y + paddle.height);
+            ctx.lineTo(paddle.x + paddleRadius, paddle.y + paddle.height);
+            ctx.quadraticCurveTo(paddle.x, paddle.y + paddle.height, paddle.x, paddle.y + paddle.height - 2);
+            ctx.lineTo(paddle.x + paddle.width - 2, paddle.y + paddle.height - 2);
+            ctx.closePath();
+            
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+            ctx.fill();
+
+            // Draw red tips if magnet is active
+            if (magnetActive) {
+                const tipWidth = 15;
+                
+                // Left tip
+                const leftTipGradient = ctx.createLinearGradient(
+                    paddle.x, paddle.y,
+                    paddle.x + tipWidth, paddle.y + paddle.height
+                );
+                leftTipGradient.addColorStop(0, 'rgba(255, 0, 0, 0.7)'); // Brighter red at top
+                leftTipGradient.addColorStop(1, 'rgba(200, 0, 0, 0.7)'); // Darker red at bottom
+
+                // Draw main left tip body
+                ctx.beginPath();
+                ctx.moveTo(paddle.x, paddle.y);
+                ctx.lineTo(paddle.x + tipWidth, paddle.y);
+                ctx.lineTo(paddle.x + tipWidth, paddle.y + paddle.height);
+                ctx.lineTo(paddle.x, paddle.y + paddle.height);
+                ctx.closePath();
+                ctx.fillStyle = leftTipGradient;
+                ctx.fill();
+
+                // Draw left tip highlight
+                ctx.beginPath();
+                ctx.moveTo(paddle.x, paddle.y);
+                ctx.lineTo(paddle.x + tipWidth, paddle.y);
+                ctx.lineTo(paddle.x + tipWidth, paddle.y + 2);
+                ctx.lineTo(paddle.x + 2, paddle.y + 2);
+                ctx.lineTo(paddle.x + 2, paddle.y);
+                ctx.closePath();
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+                ctx.fill();
+
+                // Draw left tip shadow
+                ctx.beginPath();
+                ctx.moveTo(paddle.x + tipWidth - 2, paddle.y + 2);
+                ctx.lineTo(paddle.x + tipWidth - 2, paddle.y + paddle.height);
+                ctx.lineTo(paddle.x, paddle.y + paddle.height);
+                ctx.lineTo(paddle.x, paddle.y + paddle.height - 2);
+                ctx.lineTo(paddle.x + tipWidth - 2, paddle.y + paddle.height - 2);
+                ctx.closePath();
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+                ctx.fill();
+
+                // Right tip
+                const rightTipGradient = ctx.createLinearGradient(
+                    paddle.x + paddle.width - tipWidth, paddle.y,
+                    paddle.x + paddle.width, paddle.y + paddle.height
+                );
+                rightTipGradient.addColorStop(0, 'rgba(255, 0, 0, 0.7)'); // Brighter red at top
+                rightTipGradient.addColorStop(1, 'rgba(200, 0, 0, 0.7)'); // Darker red at bottom
+
+                // Draw main right tip body
+                ctx.beginPath();
+                ctx.moveTo(paddle.x + paddle.width - tipWidth, paddle.y);
+                ctx.lineTo(paddle.x + paddle.width, paddle.y);
+                ctx.lineTo(paddle.x + paddle.width, paddle.y + paddle.height);
+                ctx.lineTo(paddle.x + paddle.width - tipWidth, paddle.y + paddle.height);
+                ctx.closePath();
+                ctx.fillStyle = rightTipGradient;
+                ctx.fill();
+
+                // Draw right tip highlight
+                ctx.beginPath();
+                ctx.moveTo(paddle.x + paddle.width - tipWidth, paddle.y);
+                ctx.lineTo(paddle.x + paddle.width, paddle.y);
+                ctx.lineTo(paddle.x + paddle.width, paddle.y + 2);
+                ctx.lineTo(paddle.x + paddle.width - tipWidth + 2, paddle.y + 2);
+                ctx.lineTo(paddle.x + paddle.width - tipWidth + 2, paddle.y);
+                ctx.closePath();
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+                ctx.fill();
+
+                // Draw right tip shadow
+                ctx.beginPath();
+                ctx.moveTo(paddle.x + paddle.width - 2, paddle.y + 2);
+                ctx.lineTo(paddle.x + paddle.width - 2, paddle.y + paddle.height);
+                ctx.lineTo(paddle.x + paddle.width - tipWidth, paddle.y + paddle.height);
+                ctx.lineTo(paddle.x + paddle.width - tipWidth, paddle.y + paddle.height - 2);
+                ctx.lineTo(paddle.x + paddle.width - 2, paddle.y + paddle.height - 2);
+                ctx.closePath();
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+                ctx.fill();
+            }
+
+            // Draw powerups
+            powerups.forEach(powerup => {
+                ctx.fillStyle = getPowerupColor(powerup.type);
+                ctx.beginPath();
+                ctx.arc(powerup.x, powerup.y, 10, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.closePath();
+
+                // Add letter to powerup
+                ctx.fillStyle = 'white';
+                ctx.font = 'bold 12px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                let letter = '';
+                switch(powerup.type) {
+                    case 'longer_paddle': letter = 'L'; break;
+                    case 'faster_paddle': letter = 'S'; break;
+                    case 'multi_ball': letter = '+'; break;
+                    case 'magnet': letter = 'M'; break;
+                    case 'extra_life': letter = '1'; break;
+                }
+                ctx.fillText(letter, powerup.x, powerup.y);
+            });
+
+            // Update powerups
+            powerups.forEach((powerup, index) => {
+                powerup.y += powerup.dy;
+                
+                if (powerup.y > paddle.y && 
+                    powerup.y < paddle.y + paddle.height &&
+                    powerup.x > paddle.x && 
+                    powerup.x < paddle.x + paddle.width) {
+                    
+                    applyPowerup(powerup.type);
+                    powerups.splice(index, 1);
+                }
+            });
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function getPowerupColor(type) {
+            const colors = {
+                longer_paddle: '#0f0',
+                faster_paddle: '#00f',
+                multi_ball: '#ff0',
+                magnet: '#f0f',
+                extra_life: '#f00'
+            };
+            return colors[type] || '#fff';
+        }
+
+        // Initialize game
+        loadHighScores();
+        loadLevel(level).then(() => {
+            // Calculate random angle between -60 and 60 degrees
+            const angle = (Math.random() - 0.5) * Math.PI / 1.5; // -60 to 60 degrees
+            const speed = 5; // Base speed
+            
+            balls = [{
+                x: canvas.width / 2,
+                y: canvas.height - 50,
+                radius: 10,
+                dx: Math.sin(angle) * speed,
+                dy: -Math.cos(angle) * speed
+            }];
+            
+            updateStatusDisplay();
+            gameLoop();
+        });
+
+        // Event listeners
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') {
+                paddle.x = Math.max(0, paddle.x - paddle.speed);
+            } else if (e.key === 'ArrowRight') {
+                paddle.x = Math.min(canvas.width - paddle.width, paddle.x + paddle.speed);
+            } else if (e.key.toLowerCase() === 'p') {
+                gamePaused = !gamePaused;
+            } else if (e.key === ' ' && magnetActive && heldBall) {
+                heldBall.dx = (Math.random() - 0.5) * 8;
+                heldBall.dy = -Math.abs(Math.random() * 4 + 2);
+                heldBall = null;
+            } else if (e.key === 'Enter' && nameEntry.style.display === 'flex') {
+                submitScore();
+            }
+        });
+    </script>
+</body>
+</html> 

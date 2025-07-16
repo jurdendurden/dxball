@@ -130,13 +130,10 @@ dmypy.json
 
 # Project-specific ignores
 # Game logs - these are generated during gameplay
-logs/
+*.log
 
 # High scores and game data - these are user-generated
-scores/
-
-# Backup folder - contains old versions and backups
-backup/
+scores/high_scores.json
 
 # IDE and editor files
 .vscode/
